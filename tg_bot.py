@@ -65,6 +65,9 @@ def generate_post(topic: str) -> str:
         },
         timeout=30
     )
+    log.info(f"API status: {r.status_code}")
+    log.info(f"API headers: {dict(r.headers)}")
+    log.info(f"API raw response: {r.text[:500]}")
     data = r.json()
     log.info(f"API response: {data}")
     return data["choices"][0]["message"]["content"].strip()
