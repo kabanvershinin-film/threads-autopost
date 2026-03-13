@@ -192,7 +192,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("⚙️ Изменить настройки", callback_data="setup_start")],
             [InlineKeyboardButton("➕ Добавить посты в очередь", callback_data="add_more")],
+            [InlineKeyboardButton("📤 Опубликовать пост сейчас", callback_data="post_now")],
             [InlineKeyboardButton("📊 Статус очереди", callback_data="queue_status")],
+            [InlineKeyboardButton("🗑 Стереть все посты", callback_data="confirm_reset")],
         ]
         await update.message.reply_text(
             f"👋 Привет!\n\n"
@@ -356,6 +358,95 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await query.edit_message_text("📊 *Очередь пуста*\n\nНажми /start", parse_mode="Markdown")
+
+
+    elif query.data == "post_now":
+        queue = load_queue()
+        if not queue:
+            await query.edit_message_text("📊 *Очередь пуста*\n\nНет постов для публикации.", parse_mode="Markdown")
+            return
+        await query.edit_message_text("📤 Публикую сейчас...")
+        post_text = queue.pop(0)
+        save_queue(queue)
+        post_id = publish_to_threads(post_text)
+        if post_id:
+            await query.edit_message_text(f"✅ *Опубликовано!*\n\n{post_text}\n\n📊 В очереди осталось: {len(queue)} постов", parse_mode="Markdown")
+        else:
+            queue.insert(0, post_text)
+            save_queue(queue)
+            await query.edit_message_text("❌ Ошибка публикации. Пост возвращён в очередь.")
+    elif query.data == "confirm_reset":
+        queue = load_queue()
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, стереть", callback_data="do_reset")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="queue_status")],
+        ]
+        await query.edit_message_text(
+            f"🗑 *Стереть все посты?*\n\n"
+            f"В очереди: *{len(queue)} постов*\n\n"
+            f"Это действие нельзя отменить!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "do_reset":
+        save_queue([])
+        await query.edit_message_text(
+            "✅ *Очередь очищена!*\n\n"
+            "Все посты удалены. Нажми /start чтобы добавить новые.",
+            parse_mode="Markdown"
+        )
+
+    elif query.data == "confirm_reset":
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, стереть всё", callback_data="do_reset")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="cancel_reset")],
+        ]
+        await query.edit_message_text(
+            "🗑 *Вы уверены?*\n\n"
+            "Это сотрёт все посты из очереди.\n"
+            "Настройки расписания останутся.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "do_reset":
+        save_queue([])
+        queue_count = 0
+        await query.edit_message_text(
+            "✅ *Очередь очищена!*\n\n"
+            "Нажми /start чтобы добавить новые посты.",
+            parse_mode="Markdown"
+        )
+
+    elif query.data == "cancel_reset":
+        await query.edit_message_text("❌ Отменено. Нажми /start")
+
+    elif query.data == "confirm_reset":
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, стереть всё", callback_data="do_reset")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="cancel_reset")],
+        ]
+        await query.edit_message_text(
+            "🗑 *Вы уверены?*\n\n"
+            "Это сотрёт всю очередь постов и настройки.\n"
+            "Придётся настраивать заново.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "do_reset":
+        save_queue([])
+        save_settings({})
+        schedule.clear()
+        setup_data.pop(user_id, None)
+        await query.edit_message_text(
+            "✅ *Всё стёрто!*\n\nНапиши /start чтобы настроить заново.",
+            parse_mode="Markdown"
+        )
+
+    elif query.data == "cancel_reset":
+        await query.edit_message_text("❌ Отменено. Напиши /start")
 
     elif query.data == "add_more":
         settings = load_settings()
