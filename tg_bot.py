@@ -1,6 +1,5 @@
 """
-Telegram Bot — пишешь тему → генерирует пост → публикует в Threads
-+ автопостинг по расписанию каждый день в 09:00
+Telegram Bot — настройка автопостинга в Threads
 """
 
 import os
@@ -18,27 +17,27 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, filters
 )
 
-TELEGRAM_TOKEN    = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
-THREADS_USER_ID   = os.getenv("THREADS_USER_ID")
-THREADS_TOKEN     = os.getenv("THREADS_ACCESS_TOKEN")
-OPENAI_BASE_URL   = os.getenv("OPENAI_BASE_URL", "https://php.lingkeai.vip/api/v1")
-OPENCLAW_MODEL    = os.getenv("OPENCLAW_MODEL", "gpt-5.2")
-ADMIN_CHAT_ID     = int(os.getenv("ADMIN_CHAT_ID", 464450106))
-PORT              = int(os.getenv("PORT", 8080))
-AUTO_POST_TIME    = os.getenv("AUTO_POST_TIME", "09:00")
+TELEGRAM_TOKEN  = os.getenv("TELEGRAM_TOKEN")
+OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY")
+THREADS_USER_ID = os.getenv("THREADS_USER_ID")
+THREADS_TOKEN   = os.getenv("THREADS_ACCESS_TOKEN")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://php.lingkeai.vip/api/v1")
+OPENCLAW_MODEL  = os.getenv("OPENCLAW_MODEL", "gpt-5.2")
+ADMIN_CHAT_ID   = int(os.getenv("ADMIN_CHAT_ID", 464450106))
+PORT            = int(os.getenv("PORT", 8080))
 
-THREADS_API = "https://graph.threads.net/v1.0"
-QUEUE_FILE  = "post_queue.json"
+THREADS_API   = "https://graph.threads.net/v1.0"
+QUEUE_FILE    = "post_queue.json"
+SETTINGS_FILE = "settings.json"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-drafts = {}
-bot_app = None  # глобальная ссылка на приложение
+bot_app = None
+setup_data = {}
 
 
-# ── Очередь постов ────────────────────────────────────
+# ── Утилиты ───────────────────────────────────────────
 def load_queue():
     if os.path.exists(QUEUE_FILE):
         with open(QUEUE_FILE, "r", encoding="utf-8") as f:
@@ -49,8 +48,32 @@ def save_queue(queue):
     with open(QUEUE_FILE, "w", encoding="utf-8") as f:
         json.dump(queue, f, ensure_ascii=False, indent=2)
 
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
-# ── Веб-сервер для Render ─────────────────────────────
+def save_settings(settings):
+    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+
+def get_post_times(posts_per_day: int) -> list:
+    """Равномерно распределяет публикации с 08:00 до 22:00"""
+    start, end = 8, 22
+    if posts_per_day == 1:
+        return ["09:00"]
+    step = (end - start) / (posts_per_day - 1)
+    times = []
+    for i in range(posts_per_day):
+        total_minutes = start * 60 + int(step * 60 * i)
+        h = total_minutes // 60
+        m = total_minutes % 60
+        times.append(f"{h:02d}:{m:02d}")
+    return times
+
+
+# ── Веб-сервер ────────────────────────────────────────
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -60,69 +83,35 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 def run_health_server():
-    server = HTTPServer(("0.0.0.0", PORT), HealthHandler)
-    server.serve_forever()
+    HTTPServer(("0.0.0.0", PORT), HealthHandler).serve_forever()
 
 
 # ── AI генерация ──────────────────────────────────────
-def generate_post(topic: str) -> str:
-    url = f"{OPENAI_BASE_URL}/chat/completions"
-    log.info(f"Запрос к API: {url}")
-    r = requests.post(
-        url,
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": OPENCLAW_MODEL,
-            "max_tokens": 400,
-            "messages": [{
-                "role": "user",
-                "content": (
-                    f"Напиши короткий интересный пост для Threads на тему: {topic}\n\n"
-                    f"Требования:\n"
-                    f"- До 300 символов\n"
-                    f"- Живой разговорный стиль\n"
-                    f"- 1-2 эмодзи\n"
-                    f"- Без хэштегов\n"
-                    f"- Только текст поста, без пояснений"
-                )
-            }]
-        },
-        timeout=30
-    )
-    log.info(f"API status: {r.status_code}, response: {r.text[:300]}")
-    data = r.json()
-    return data["choices"][0]["message"]["content"].strip()
-
-def generate_10_posts(topic: str) -> list:
+def generate_posts_batch(topic: str, count: int) -> list:
     url = f"{OPENAI_BASE_URL}/chat/completions"
     r = requests.post(
         url,
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        },
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
         json={
             "model": OPENCLAW_MODEL,
-            "max_tokens": 2000,
+            "max_tokens": 4000,
             "messages": [{
                 "role": "user",
                 "content": (
-                    f"Напиши 10 разных коротких постов для Threads на тему: {topic}\n\n"
+                    f"Напиши {count} разных коротких постов для Threads на тему: {topic}\n\n"
                     f"Требования к каждому посту:\n"
                     f"- До 300 символов\n"
                     f"- Живой разговорный стиль\n"
                     f"- 1-2 эмодзи\n"
                     f"- Без хэштегов\n"
-                    f"- Только текст поста\n\n"
-                    f"Формат ответа — только JSON массив из 10 строк:\n"
-                    f'["пост 1", "пост 2", ..., "пост 10"]'
+                    f"- Только текст поста\n"
+                    f"- Все посты разные по стилю и подаче\n\n"
+                    f"Формат — только JSON массив из {count} строк:\n"
+                    f'["пост 1", "пост 2", ...]'
                 )
             }]
         },
-        timeout=60
+        timeout=120
     )
     data = r.json()
     text = data["choices"][0]["message"]["content"].strip()
@@ -136,7 +125,6 @@ def publish_to_threads(text: str) -> str | None:
         f"{THREADS_API}/{THREADS_USER_ID}/threads",
         params={"media_type": "TEXT", "text": text, "access_token": THREADS_TOKEN}
     )
-    log.info(f"Threads create: {r.json()}")
     container_id = r.json().get("id")
     if not container_id:
         log.error(f"Threads error: {r.json()}")
@@ -146,211 +134,252 @@ def publish_to_threads(text: str) -> str | None:
         f"{THREADS_API}/{THREADS_USER_ID}/threads_publish",
         params={"creation_id": container_id, "access_token": THREADS_TOKEN}
     )
-    log.info(f"Threads publish: {r2.json()}")
     return r2.json().get("id")
 
 
-# ── Автопостинг по расписанию ─────────────────────────
+# ── Автопостинг ───────────────────────────────────────
 def auto_post_job():
     queue = load_queue()
     if not queue:
-        log.info("Очередь пуста — пропускаем автопостинг")
+        log.info("Очередь пуста")
         return
 
     post_text = queue.pop(0)
     save_queue(queue)
-
     post_id = publish_to_threads(post_text)
 
     if bot_app and ADMIN_CHAT_ID:
         import asyncio
-        if post_id:
-            msg = (
-                f"🤖 *Автопост опубликован!*\n\n"
-                f"{post_text}\n\n"
-                f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-                f"📊 В очереди осталось: {len(queue)} постов"
-            )
-        else:
-            msg = f"❌ Ошибка автопостинга — пост не опубликован"
+        msg = (
+            f"🤖 *Автопост опубликован!*\n\n{post_text}\n\n"
+            f"📅 {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+            f"📊 В очереди осталось: {len(queue)} постов"
+        ) if post_id else "❌ Ошибка автопостинга"
+
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
         asyncio.run_coroutine_threadsafe(
             bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg, parse_mode="Markdown"),
-            bot_app.loop if hasattr(bot_app, 'loop') else asyncio.get_event_loop()
+            loop
         )
 
+def setup_scheduler(times: list):
+    schedule.clear()
+    for t in times:
+        schedule.every().day.at(t).do(auto_post_job)
+    log.info(f"⏰ Расписание: {times}")
+
 def run_scheduler():
-    schedule.every().day.at(AUTO_POST_TIME).do(auto_post_job)
-    log.info(f"⏰ Автопостинг настроен на {AUTO_POST_TIME} каждый день")
+    settings = load_settings()
+    if settings.get("times"):
+        setup_scheduler(settings["times"])
     while True:
         schedule.run_pending()
         time.sleep(30)
 
 
-# ── Telegram команды ──────────────────────────────────
+# ── /start ────────────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    settings = load_settings()
+    queue = load_queue()
+
+    if settings.get("times"):
+        times_str = ", ".join(settings["times"])
+        keyboard = [
+            [InlineKeyboardButton("⚙️ Изменить настройки", callback_data="setup_start")],
+            [InlineKeyboardButton("➕ Добавить посты в очередь", callback_data="add_more")],
+            [InlineKeyboardButton("📊 Статус очереди", callback_data="queue_status")],
+        ]
+        await update.message.reply_text(
+            f"👋 Привет!\n\n"
+            f"✅ *Автопостинг активен*\n"
+            f"📅 Постов в день: *{settings['posts_per_day']}*\n"
+            f"⏰ Время: *{times_str}*\n"
+            f"📊 В очереди: *{len(queue)} постов*\n\n"
+            f"Что делаем?",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        keyboard = [[InlineKeyboardButton("🚀 Настроить автопостинг", callback_data="setup_start")]]
+        await update.message.reply_text(
+            "👋 Привет! Я публикую посты в Threads автоматически.\n\n"
+            "Давай настроим автопостинг!",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+# ── Шаги настройки ───────────────────────────────────
+async def ask_posts_per_day(query):
     keyboard = [
-        [InlineKeyboardButton("📝 Написать пост", callback_data="manual_post")],
-        [InlineKeyboardButton("🤖 Авто: добавить 10 постов", callback_data="auto_generate")],
-        [InlineKeyboardButton("📊 Статус очереди", callback_data="queue_status")],
+        [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
+        [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(6, 11)],
     ]
-    await update.message.reply_text(
-        "👋 Привет! Я публикую посты в Threads.\n\n"
-        f"⏰ Автопостинг: каждый день в *{AUTO_POST_TIME}*\n\n"
-        "Выбери действие:",
+    await query.edit_message_text(
+        "⚙️ *Настройка автопостинга*\n\n"
+        "📅 *Шаг 1 из 3*\n\n"
+        "Сколько постов публиковать *в день*?",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def handle_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def ask_topics_count(query, user_id):
+    ppd = setup_data[user_id]["posts_per_day"]
+    times = get_post_times(ppd)
+    times_str = ", ".join(times)
+    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"tc:{i}") for i in range(1, 4)]]
+    await query.edit_message_text(
+        f"✅ Постов в день: *{ppd}*\n"
+        f"⏰ Время публикаций: *{times_str}*\n\n"
+        f"📝 *Шаг 2 из 3*\n\n"
+        f"Сколько *тем* чередовать?",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def ask_next_topic(target, ctx, user_id, is_callback=True):
+    data = setup_data[user_id]
+    done = len(data.get("topics", []))
+    total = data["topics_count"]
+    text = (
+        f"✅ Постов в день: *{data['posts_per_day']}*\n"
+        f"✅ Тем: *{total}*\n\n"
+        f"📌 *Шаг 3 из 3*\n\n"
+        f"Напиши тему *{done + 1} из {total}*:\n\n"
+        f"Например: _AI и нейросети_, _кино_, _технологии_"
+    )
+    ctx.user_data["step"] = "enter_topic"
+    if is_callback:
+        await target.edit_message_text(text, parse_mode="Markdown")
+    else:
+        await target.message.reply_text(text, parse_mode="Markdown")
+
+
+# ── Обработка текста ──────────────────────────────────
+async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    topic = update.message.text.strip()
+    text = update.message.text.strip()
     step = ctx.user_data.get("step")
 
-    if step == "auto_topic":
-        ctx.user_data["step"] = None
-        await update.message.reply_text(f"⏳ Генерирую 10 постов на тему: *{topic}*...", parse_mode="Markdown")
-        try:
-            posts = generate_10_posts(topic)
-            queue = load_queue()
-            queue.extend(posts)
-            save_queue(queue)
-            preview = "\n\n".join([f"*{i+1}.* {p[:100]}..." for i, p in enumerate(posts[:3])])
-            await update.message.reply_text(
-                f"✅ *10 постов добавлено в очередь!*\n\n"
-                f"Первые 3 поста:\n\n{preview}\n\n"
-                f"📊 Всего в очереди: {len(queue)} постов\n"
-                f"⏰ Публикация каждый день в {AUTO_POST_TIME}",
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка: {e}")
-    else:
-        await update.message.reply_text("⏳ Генерирую пост...")
-        try:
-            post_text = generate_post(topic)
-            drafts[user_id] = post_text
-            keyboard = [[
-                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                InlineKeyboardButton("🔄 Заново", callback_data=f"regen:{topic}"),
-            ], [
-                InlineKeyboardButton("📥 В очередь", callback_data="add_to_queue"),
-                InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
-            ]]
-            await update.message.reply_text(
-                f"📝 *Вот твой пост:*\n\n{post_text}",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        except Exception as e:
-            log.error(f"Generate error: {e}")
-            await update.message.reply_text(f"❌ Ошибка: {e}")
+    if step != "enter_topic":
+        return
 
+    data = setup_data.setdefault(user_id, {})
+    topics = data.setdefault("topics", [])
+    topics.append(text)
+
+    if len(topics) < data["topics_count"]:
+        await ask_next_topic(update, ctx, user_id, is_callback=False)
+        return
+
+    # Все темы собраны — генерируем
+    ctx.user_data["step"] = None
+    ppd = data["posts_per_day"]
+    topics_total = data["topics_count"]
+    total_posts = ppd * 30
+    posts_per_topic = total_posts // topics_total
+
+    await update.message.reply_text(
+        f"⏳ *Генерирую {total_posts} постов на 30 дней...*\n\n"
+        f"Темы: {', '.join(topics)}\n"
+        f"Подожди ~{topics_total * 20} секунд ☕",
+        parse_mode="Markdown"
+    )
+
+    try:
+        import random
+        all_posts = []
+        for topic in topics:
+            posts = generate_posts_batch(topic, posts_per_topic)
+            all_posts.extend(posts)
+        random.shuffle(all_posts)
+
+        queue = load_queue()
+        queue.extend(all_posts)
+        save_queue(queue)
+
+        times = get_post_times(ppd)
+        setup_scheduler(times)
+        save_settings({"posts_per_day": ppd, "topics": topics, "times": times})
+
+        await update.message.reply_text(
+            f"🎉 *Автопостинг настроен!*\n\n"
+            f"📅 Постов в день: *{ppd}*\n"
+            f"⏰ Время: *{', '.join(times)}*\n"
+            f"📊 Постов в очереди: *{len(queue)}* (~30 дней)\n"
+            f"🎯 Темы: {', '.join(topics)}\n\n"
+            f"Буду публиковать сам каждый день! 🚀",
+            parse_mode="Markdown"
+        )
+        setup_data.pop(user_id, None)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка генерации: {e}")
+
+
+# ── Callback ──────────────────────────────────────────
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
 
-    if query.data == "manual_post":
-        await query.edit_message_text("✍️ Напиши тему для поста:")
+    if query.data == "setup_start":
+        setup_data[user_id] = {}
+        await ask_posts_per_day(query)
 
-    elif query.data == "auto_generate":
-        ctx.user_data["step"] = "auto_topic"
-        await query.edit_message_text(
-            "🤖 *Автогенерация 10 постов*\n\n"
-            "Напиши тему — сгенерирую 10 постов и добавлю в очередь.\n"
-            "Они будут публиковаться каждый день в 09:00\n\n"
-            "Например: *AI видео и нейросети*",
-            parse_mode="Markdown"
-        )
+    elif query.data.startswith("ppd:"):
+        ppd = int(query.data.split(":")[1])
+        setup_data.setdefault(user_id, {})["posts_per_day"] = ppd
+        await ask_topics_count(query, user_id)
+
+    elif query.data.startswith("tc:"):
+        tc = int(query.data.split(":")[1])
+        setup_data.setdefault(user_id, {})["topics_count"] = tc
+        setup_data[user_id]["topics"] = []
+        await ask_next_topic(query, ctx, user_id, is_callback=True)
 
     elif query.data == "queue_status":
         queue = load_queue()
+        settings = load_settings()
         if queue:
-            preview = "\n".join([f"{i+1}. {p[:80]}..." for i, p in enumerate(queue[:5])])
+            preview = "\n".join([f"{i+1}. {p[:70]}..." for i, p in enumerate(queue[:5])])
             await query.edit_message_text(
                 f"📊 *Статус очереди*\n\n"
-                f"Постов в очереди: *{len(queue)}*\n"
-                f"⏰ Следующий пост: сегодня/завтра в {AUTO_POST_TIME}\n\n"
+                f"Постов: *{len(queue)}*\n"
+                f"⏰ Публикации: *{', '.join(settings.get('times', []))}*\n\n"
                 f"*Ближайшие посты:*\n{preview}",
                 parse_mode="Markdown"
             )
         else:
-            await query.edit_message_text(
-                "📊 *Очередь пуста*\n\n"
-                "Добавьте посты через '🤖 Авто: добавить 10 постов'",
-                parse_mode="Markdown"
-            )
+            await query.edit_message_text("📊 *Очередь пуста*\n\nНажми /start", parse_mode="Markdown")
 
-    elif query.data == "publish":
-        post_text = drafts.get(user_id)
-        if not post_text:
-            await query.edit_message_text("❌ Пост не найден. Напиши тему заново.")
-            return
-        await query.edit_message_text("📤 Публикую в Threads...")
-        post_id = publish_to_threads(post_text)
-        if post_id:
-            await query.edit_message_text(f"✅ *Пост опубликован!*\n\n{post_text}", parse_mode="Markdown")
-        else:
-            await query.edit_message_text("❌ Ошибка публикации.")
-
-    elif query.data == "add_to_queue":
-        post_text = drafts.get(user_id)
-        if not post_text:
-            await query.edit_message_text("❌ Пост не найден.")
-            return
-        queue = load_queue()
-        queue.append(post_text)
-        save_queue(queue)
+    elif query.data == "add_more":
+        settings = load_settings()
+        setup_data[user_id] = {"posts_per_day": settings.get("posts_per_day", 1)}
+        keyboard = [[InlineKeyboardButton(str(i), callback_data=f"tc:{i}") for i in range(1, 4)]]
         await query.edit_message_text(
-            f"📥 *Пост добавлен в очередь!*\n\n"
-            f"{post_text}\n\n"
-            f"📊 Всего в очереди: {len(queue)} постов",
-            parse_mode="Markdown"
+            "➕ *Добавить посты в очередь*\n\nСколько тем использовать?",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
-
-    elif query.data.startswith("regen:"):
-        topic = query.data.split(":", 1)[1]
-        await query.edit_message_text("⏳ Генерирую новый вариант...")
-        try:
-            post_text = generate_post(topic)
-            drafts[user_id] = post_text
-            keyboard = [[
-                InlineKeyboardButton("✅ Опубликовать", callback_data="publish"),
-                InlineKeyboardButton("🔄 Заново", callback_data=f"regen:{topic}"),
-            ], [
-                InlineKeyboardButton("📥 В очередь", callback_data="add_to_queue"),
-                InlineKeyboardButton("❌ Отмена", callback_data="cancel"),
-            ]]
-            await query.edit_message_text(
-                f"📝 *Новый вариант:*\n\n{post_text}",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        except Exception as e:
-            await query.edit_message_text(f"❌ Ошибка: {e}")
-
-    elif query.data == "cancel":
-        drafts.pop(user_id, None)
-        await query.edit_message_text("❌ Отменено.")
 
 
 # ── Запуск ────────────────────────────────────────────
 def main():
     global bot_app
-    log.info("🤖 Telegram бот запущен!")
-
+    log.info("🤖 Бот запущен!")
     threading.Thread(target=run_health_server, daemon=True).start()
-    log.info(f"✅ Health server запущен на порту {PORT}")
-
     threading.Thread(target=run_scheduler, daemon=True).start()
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     bot_app = app
-
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_topic))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
