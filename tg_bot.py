@@ -8,20 +8,17 @@ import logging
 import threading
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters
 )
 
-load_dotenv()
-
 TELEGRAM_TOKEN    = os.getenv("TELEGRAM_TOKEN")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
 THREADS_USER_ID   = os.getenv("THREADS_USER_ID")
 THREADS_TOKEN     = os.getenv("THREADS_ACCESS_TOKEN")
-OPENCLAW_BASE_URL = os.getenv("OPENCLAW_BASE_URL", "http://127.0.0.1:18789")
+OPENAI_BASE_URL   = os.getenv("OPENAI_BASE_URL", "https://php.lingkeai.vip/api/v1")
 OPENCLAW_MODEL    = os.getenv("OPENCLAW_MODEL", "gpt-5.2")
 PORT              = int(os.getenv("PORT", 8080))
 
@@ -33,7 +30,7 @@ log = logging.getLogger(__name__)
 drafts = {}
 
 
-# ── Фиктивный веб-сервер для Render ─────────────────────────────
+# ── Веб-сервер для Render ─────────────────────────────
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -49,10 +46,12 @@ def run_health_server():
 
 # ── AI генерация ─────────────────────────────────────────────────
 def generate_post(topic: str) -> str:
+    url = f"{OPENAI_BASE_URL}/chat/completions"
+    log.info(f"Запрос к API: {url}")
     r = requests.post(
-        f"{OPENCLAW_BASE_URL}/v1/chat/completions",
+        url,
         headers={
-            "Authorization": f"Bearer {ANTHROPIC_API_KEY}",
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
             "Content-Type": "application/json"
         },
         json={
@@ -60,16 +59,21 @@ def generate_post(topic: str) -> str:
             "max_tokens": 400,
             "messages": [{
                 "role": "user",
-                "content": f"Напиши короткий интересный пост для Threads на тему: {topic}\n\nТребования:\n- До 300 символов\n- Живой разговорный стиль\n- 1-2 эмодзи\n- Без хэштегов\n- Только текст поста, без пояснений"
+                "content": (
+                    f"Напиши короткий интересный пост для Threads на тему: {topic}\n\n"
+                    f"Требования:\n"
+                    f"- До 300 символов\n"
+                    f"- Живой разговорный стиль\n"
+                    f"- 1-2 эмодзи\n"
+                    f"- Без хэштегов\n"
+                    f"- Только текст поста, без пояснений"
+                )
             }]
         },
         timeout=30
     )
-    log.info(f"API status: {r.status_code}")
-    log.info(f"API headers: {dict(r.headers)}")
-    log.info(f"API raw response: {r.text[:500]}")
+    log.info(f"API status: {r.status_code}, response: {r.text[:300]}")
     data = r.json()
-    log.info(f"API response: {data}")
     return data["choices"][0]["message"]["content"].strip()
 
 
@@ -79,6 +83,7 @@ def publish_to_threads(text: str) -> str | None:
         f"{THREADS_API}/{THREADS_USER_ID}/threads",
         params={"media_type": "TEXT", "text": text, "access_token": THREADS_TOKEN}
     )
+    log.info(f"Threads create: {r.json()}")
     container_id = r.json().get("id")
     if not container_id:
         log.error(f"Threads error: {r.json()}")
@@ -88,16 +93,18 @@ def publish_to_threads(text: str) -> str | None:
         f"{THREADS_API}/{THREADS_USER_ID}/threads_publish",
         params={"creation_id": container_id, "access_token": THREADS_TOKEN}
     )
+    log.info(f"Threads publish: {r2.json()}")
     return r2.json().get("id")
 
 
 # ── Telegram handlers ────────────────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Привет! Я публикую посты в Threads.\n\nПросто напиши тему — сгенерирую пост!\n\nНапример: *новости AI*",
+        "👋 Привет! Я публикую посты в Threads.\n\n"
+        "Просто напиши тему — сгенерирую пост!\n\n"
+        "Например: *новости AI*",
         parse_mode="Markdown"
     )
-
 
 async def handle_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -119,7 +126,6 @@ async def handle_topic(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         log.error(f"Generate error: {e}")
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -133,7 +139,10 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📤 Публикую в Threads...")
         post_id = publish_to_threads(post_text)
         if post_id:
-            await query.edit_message_text(f"✅ *Пост опубликован!*\n\n{post_text}", parse_mode="Markdown")
+            await query.edit_message_text(
+                f"✅ *Пост опубликован!*\n\n{post_text}",
+                parse_mode="Markdown"
+            )
         else:
             await query.edit_message_text("❌ Ошибка публикации.")
 
@@ -163,25 +172,14 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ── Запуск ───────────────────────────────────────────────────────
 def main():
     log.info("🤖 Telegram бот запущен!")
-
-    # Запускаем веб-сервер в фоне для Render
     t = threading.Thread(target=run_health_server, daemon=True)
     t.start()
     log.info(f"✅ Health server запущен на порту {PORT}")
-
-    proxy = os.getenv("PROXY_URL", "")
-    if proxy:
-        from telegram.request import HTTPXRequest
-        app = Application.builder().token(TELEGRAM_TOKEN).request(HTTPXRequest(proxy=proxy)).build()
-    else:
-        app = Application.builder().token(TELEGRAM_TOKEN).build()
-
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_topic))
-
-    app.run_polling()
-
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
