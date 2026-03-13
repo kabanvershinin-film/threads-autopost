@@ -25,6 +25,7 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://php.lingkeai.vip/api/v1"
 OPENCLAW_MODEL  = os.getenv("OPENCLAW_MODEL", "gpt-5.2")
 ADMIN_CHAT_ID   = int(os.getenv("ADMIN_CHAT_ID", 464450106))
 PORT            = int(os.getenv("PORT", 8080))
+RENDER_URL      = os.getenv("RENDER_URL", "")
 
 THREADS_API   = "https://graph.threads.net/v1.0"
 QUEUE_FILE    = "post_queue.json"
@@ -250,7 +251,7 @@ async def ask_next_topic(target, ctx, user_id, is_callback=True):
     text = (
         f"✅ Постов в день: *{data['posts_per_day']}*\n"
         f"✅ Тем: *{total}*\n\n"
-        f"📌 *Шаг 3 из 3*\n\n"
+        f"📌 *Шаг 3 из 4*\n\n"
         f"Напиши тему *{done + 1} из {total}*:\n\n"
         f"Например: _AI и нейросети_, _кино_, _технологии_"
     )
@@ -259,6 +260,21 @@ async def ask_next_topic(target, ctx, user_id, is_callback=True):
         await target.edit_message_text(text, parse_mode="Markdown")
     else:
         await target.message.reply_text(text, parse_mode="Markdown")
+
+async def ask_days(update, user_id):
+    data = setup_data[user_id]
+    keyboard = [
+        [InlineKeyboardButton(str(i), callback_data=f"days:{i}") for i in range(1, 6)],
+        [InlineKeyboardButton(str(i), callback_data=f"days:{i}") for i in range(6, 11)],
+    ]
+    await update.message.reply_text(
+        f"✅ Постов в день: *{data['posts_per_day']}*\n"
+        f"✅ Темы: *{', '.join(data['topics'])}*\n\n"
+        f"📅 *Шаг 4 из 4*\n\n"
+        f"На сколько *дней* генерировать посты?",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 # ── Обработка текста ──────────────────────────────────
@@ -278,49 +294,9 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await ask_next_topic(update, ctx, user_id, is_callback=False)
         return
 
-    # Все темы собраны — генерируем
+    # Все темы собраны — спрашиваем сколько дней
     ctx.user_data["step"] = None
-    ppd = data["posts_per_day"]
-    topics_total = data["topics_count"]
-    total_posts = ppd * 30
-    posts_per_topic = total_posts // topics_total
-
-    await update.message.reply_text(
-        f"⏳ *Генерирую {total_posts} постов на 30 дней...*\n\n"
-        f"Темы: {', '.join(topics)}\n"
-        f"Подожди ~{topics_total * 20} секунд ☕",
-        parse_mode="Markdown"
-    )
-
-    try:
-        import random
-        all_posts = []
-        for topic in topics:
-            posts = generate_posts_batch(topic, posts_per_topic)
-            all_posts.extend(posts)
-        random.shuffle(all_posts)
-
-        queue = load_queue()
-        queue.extend(all_posts)
-        save_queue(queue)
-
-        times = get_post_times(ppd)
-        setup_scheduler(times)
-        save_settings({"posts_per_day": ppd, "topics": topics, "times": times})
-
-        await update.message.reply_text(
-            f"🎉 *Автопостинг настроен!*\n\n"
-            f"📅 Постов в день: *{ppd}*\n"
-            f"⏰ Время: *{', '.join(times)}*\n"
-            f"📊 Постов в очереди: *{len(queue)}* (~30 дней)\n"
-            f"🎯 Темы: {', '.join(topics)}\n\n"
-            f"Буду публиковать сам каждый день! 🚀",
-            parse_mode="Markdown"
-        )
-        setup_data.pop(user_id, None)
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка генерации: {e}")
+    await ask_days(update, user_id)
 
 
 # ── Callback ──────────────────────────────────────────
@@ -448,6 +424,55 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif query.data == "cancel_reset":
         await query.edit_message_text("❌ Отменено. Напиши /start")
 
+    elif query.data.startswith("days:"):
+        days = int(query.data.split(":")[1])
+        data = setup_data.get(user_id, {})
+        data["days"] = days
+        setup_data[user_id] = data
+
+        ppd = data["posts_per_day"]
+        topics = data["topics"]
+        topics_total = data["topics_count"]
+        total_posts = ppd * days
+        posts_per_topic = max(1, total_posts // topics_total)
+
+        await query.edit_message_text(
+            f"⏳ *Генерирую {total_posts} постов на {days} дней...*\n\n"
+            f"Темы: {', '.join(topics)}\n"
+            f"Подожди ~{topics_total * 20} секунд ☕",
+            parse_mode="Markdown"
+        )
+
+        try:
+            import random
+            all_posts = []
+            for topic in topics:
+                posts = generate_posts_batch(topic, posts_per_topic)
+                all_posts.extend(posts)
+            random.shuffle(all_posts)
+
+            queue = load_queue()
+            queue.extend(all_posts)
+            save_queue(queue)
+
+            times = get_post_times(ppd)
+            setup_scheduler(times)
+            save_settings({"posts_per_day": ppd, "topics": topics, "times": times})
+
+            await query.message.reply_text(
+                f"🎉 *Автопостинг настроен!*\n\n"
+                f"📅 Постов в день: *{ppd}*\n"
+                f"⏰ Время: *{', '.join(times)}*\n"
+                f"📊 Постов в очереди: *{len(queue)}* ({days} дней)\n"
+                f"🎯 Темы: {', '.join(topics)}\n\n"
+                f"Буду публиковать сам каждый день! 🚀",
+                parse_mode="Markdown"
+            )
+            setup_data.pop(user_id, None)
+
+        except Exception as e:
+            await query.message.reply_text(f"❌ Ошибка генерации: {e}")
+
     elif query.data == "add_more":
         settings = load_settings()
         setup_data[user_id] = {"posts_per_day": settings.get("posts_per_day", 1)}
@@ -459,12 +484,24 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+def keep_alive():
+    """Пингует сам себя каждые 10 минут чтобы Render не засыпал"""
+    while True:
+        time.sleep(600)
+        if RENDER_URL:
+            try:
+                requests.get(RENDER_URL, timeout=10)
+                log.info("keep-alive ping OK")
+            except Exception as e:
+                log.warning(f"keep-alive error: {e}")
+
 # ── Запуск ────────────────────────────────────────────
 def main():
     global bot_app
     log.info("🤖 Бот запущен!")
     threading.Thread(target=run_health_server, daemon=True).start()
     threading.Thread(target=run_scheduler, daemon=True).start()
+    threading.Thread(target=keep_alive, daemon=True).start()
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
     bot_app = app
