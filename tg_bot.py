@@ -459,7 +459,6 @@ async def ask_posts_per_day(query):
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    ]
     await query.edit_message_text(
         "⚙️ *Настройка автопостинга*\n\n📅 *Шаг 1 из 4*\n\nСколько постов публиковать *в день*?",
         parse_mode="Markdown",
