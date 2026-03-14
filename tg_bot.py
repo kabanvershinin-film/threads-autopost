@@ -310,24 +310,35 @@ def hunter_job():
     for keyword in KEYWORDS:
         if found:
             break
+        
+        log.info(f"Search keyword: '{keyword}'")
         posts = search_threads_posts(keyword)
+        log.info(f"Found posts: {len(posts)}")
+        
         for post in posts:
             post_id = post.get("id")
             post_text = post.get("text", "")
+            
             if not post_id or post_id in replied:
+                log.info(f"Post already processed or no ID")
                 continue
+            
+            log.info(f"New post found: {post_text[:80]}...")
+            
             try:
                 reply = generate_reply(post_text)
+                log.info(f"Generated reply: {reply[:80]}...")
+                
                 success = reply_to_post(post_id, reply)
                 if success:
                     replied.add(post_id)
                     found = True
-                    log.info(f"✅ Ответил: {post_text[:50]}...")
+                    log.info(f"Replied: {post_text[:50]}...")
                     notify_admin(
-                        f"🎯 *Нашёл клиента!*\n\n"
-                        f"*Пост:* {post_text[:150]}\n\n"
-                        f"*Ответ:* {reply}\n\n"
-                        f"🔑 Ключ: _{keyword}_"
+                        f"Found client!\n\n"
+                        f"Post: {post_text[:150]}\n\n"
+                        f"Reply: {reply}\n\n"
+                        f"Keyword: {keyword}"
                     )
                     time.sleep(10)
                     break
@@ -337,9 +348,9 @@ def hunter_job():
     save_replied(replied)
     
     if not found:
-        log.info("🔍 Hunter: постов не найдено, ищу дальше...")
+        log.info("Hunter: no posts found, searching...")
     else:
-        log.info("🔍 Hunter: ответил на пост, ищу следующего...")
+        log.info("Hunter: replied to post, searching next...")
     
     return found
 
@@ -423,7 +434,7 @@ async def cmd_start_from_callback(query):
 async def ask_posts_per_day(query):
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
-        [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(6, 11)],
+        [InlineKeyboardButton(str(i), callback_data=fppd:{i}") for i in range(6, 11)],
     ]
     await query.edit_message_text(
         "⚙️ *Настройка автопостинга*\n\n📅 *Шаг 1 из 4*\n\nСколько постов публиковать *в день*?",
