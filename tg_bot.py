@@ -302,7 +302,7 @@ def search_threads_posts(keyword: str) -> list:
 def hunter_job():
     hunter = load_hunter_settings()
     if not hunter.get("active"):
-        return
+        return False
 
     replied = load_replied()
     found = False
@@ -337,17 +337,32 @@ def hunter_job():
     save_replied(replied)
     
     if not found:
-        log.info("🔍 Hunter: постов не найдено, повторю через 10 минут")
+        log.info("🔍 Hunter: постов не найдено, ищу дальше...")
     else:
-        log.info("🔍 Hunter: ответил на пост")
+        log.info("🔍 Hunter: ответил на пост, ищу следующего...")
+    
+    return found
 
 def run_hunter_scheduler():
     while True:
         hunter = load_hunter_settings()
+        if not hunter.get("active"):
+            time.sleep(60)
+            continue
+        
         interval = hunter.get("interval", 10)
-        schedule.every(interval).minutes.do(hunter_job)
-        time.sleep(interval * 60)
-        schedule.run_pending()
+        found = False
+        
+        while not found and hunter.get("active"):
+            hunter = load_hunter_settings()
+            if not hunter.get("active"):
+                break
+            
+            found = hunter_job()
+            
+            if not found:
+                log.info(f"⏳ Ждём {interval} минут перед следующим поиском...")
+                time.sleep(interval * 60)
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
