@@ -1,4 +1,6 @@
-Вот полный код:
+Ошибка в том, что ты скопировал мой текст вместе с кодом. Нужно скопировать только сам Python код, без моих комментариев.
+
+Вот чистый код без лишнего текста — копируй только это:
 
 ```python
 """
@@ -55,7 +57,7 @@ KEYWORDS = [
     "нейросеть видео", "ai видео генератор", "видео из текста ai",
     "текст в видео нейросеть", "генерация видео ai", "создать видео промпт",
     "сделать рекламное видео ai", "видео для рилс нейросеть", "ai видео для соцсетей",
-    "короткое видео нейросеть", "��идео для инстаграм ai", "сделать клип нейросеть",
+    "короткое видео нейросеть", "видео для инстаграм ai", "сделать клип нейросеть",
     "я новичок в ai", "я новичок в нейросетях", "только начинаю с ai",
     "не разбираюсь в нейросетях", "не понимаю как работает ai", "хочу научиться ai",
     "с чего начать в ai", "с чего начать нейросети", "помогите разобраться с ai",
@@ -67,7 +69,6 @@ KEYWORDS = [
 ]
 
 
-# ── Утилиты ───────────────────────────────────────────
 def load_queue():
     if os.path.exists(QUEUE_FILE):
         with open(QUEUE_FILE, "r", encoding="utf-8") as f:
@@ -122,7 +123,6 @@ def get_post_times(posts_per_day: int) -> list:
     return times
 
 
-# ── Веб-сервер ────────────────────────────────────────
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -145,7 +145,6 @@ def keep_alive():
                 log.warning(f"keep-alive error: {e}")
 
 
-# ── AI генерация ──────────────────────────────────────
 def generate_posts_batch(topic: str, count: int) -> list:
     url = f"{OPENAI_BASE_URL}/chat/completions"
     r = requests.post(
@@ -207,7 +206,6 @@ def generate_reply(post_text: str) -> str:
     return r.json()["choices"][0]["message"]["content"].strip()
 
 
-# ── Threads публикация ────────────────────────────────
 def publish_to_threads(text: str) -> str | None:
     r = requests.post(
         f"{THREADS_API}/{THREADS_USER_ID}/threads",
@@ -251,7 +249,6 @@ def reply_to_post(post_id: str, reply_text: str) -> bool:
         return False
 
 
-# ── Автопостинг ───────────────────────────────────────
 def notify_admin(msg: str):
     if bot_app and ADMIN_CHAT_ID:
         import asyncio
@@ -295,7 +292,6 @@ def run_scheduler():
         time.sleep(30)
 
 
-# ── Поиск клиентов ────────────────────────────────────
 def search_threads_posts(keyword: str) -> list:
     try:
         r = requests.get(
@@ -359,7 +355,6 @@ def run_hunter_scheduler():
         schedule.run_pending()
 
 
-# ── Telegram /start ───────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     settings = load_settings()
     queue = load_queue()
@@ -420,7 +415,6 @@ async def cmd_start_from_callback(query):
         )
 
 
-# ── Шаги настройки ───────────────────────────────────
 async def ask_posts_per_day(query):
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
@@ -474,7 +468,6 @@ async def ask_days(update, user_id):
     )
 
 
-# ── Обработка текста ──────────────────────────────────
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -494,7 +487,6 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await ask_days(update, user_id)
 
 
-# ── Callback ──────────────────────────────────────────
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -664,7 +656,6 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ── Запуск ────────────────────────────────────────────
 def main():
     global bot_app
     log.info("🤖 Бот запущен!")
