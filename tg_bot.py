@@ -196,6 +196,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📤 Опубликовать пост сейчас", callback_data="post_now")],
             [InlineKeyboardButton("📊 Статус очереди", callback_data="queue_status")],
             [InlineKeyboardButton("🗑 Стереть все посты", callback_data="confirm_reset")],
+            [InlineKeyboardButton("🎯 Поиск клиентов", callback_data="hunter_menu")],
         ]
         await update.message.reply_text(
             f"👋 Привет!\n\n"
@@ -473,6 +474,60 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.message.reply_text(f"❌ Ошибка генерации: {e}")
 
+    elif query.data == "hunter_menu":
+        hunter = load_hunter_settings()
+        status = "✅ Активен" if hunter.get("active") else "❌ Выключен"
+        interval = hunter.get("interval", 30)
+        keyboard = [
+            [InlineKeyboardButton("▶️ Включить" if not hunter.get("active") else "⏹ Выключить", callback_data="hunter_toggle")],
+            [InlineKeyboardButton("⏱ Каждые 15 мин", callback_data="hunter_interval:15"),
+             InlineKeyboardButton("⏱ Каждые 30 мин", callback_data="hunter_interval:30")],
+            [InlineKeyboardButton("⏱ Каждый час", callback_data="hunter_interval:60")],
+            [InlineKeyboardButton("🔍 Запустить сейчас", callback_data="hunter_now")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_menu")],
+        ]
+        await query.edit_message_text(
+            f"🎯 *Поиск клиентов*\n\n"
+            f"Статус: *{status}*\n"
+            f"Интервал: каждые *{interval} мин*\n\n"
+            f"Бот ищет людей которые спрашивают про AI видео\n"
+            f"и отвечает им — предлагает написать в личку.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "hunter_toggle":
+        hunter = load_hunter_settings()
+        hunter["active"] = not hunter.get("active", False)
+        save_hunter_settings(hunter)
+        status = "✅ Включён" if hunter["active"] else "❌ Выключен"
+        await query.edit_message_text(
+            f"🎯 Поиск клиентов *{status}*\n\nНажми /start для возврата в меню.",
+            parse_mode="Markdown"
+        )
+
+    elif query.data.startswith("hunter_interval:"):
+        minutes = int(query.data.split(":")[1])
+        hunter = load_hunter_settings()
+        hunter["interval"] = minutes
+        save_hunter_settings(hunter)
+        await query.edit_message_text(
+            f"⏱ Интервал установлен: каждые *{minutes} мин*\n\nНажми /start для возврата.",
+            parse_mode="Markdown"
+        )
+
+    elif query.data == "hunter_now":
+        await query.edit_message_text("🔍 Запускаю поиск клиентов...")
+        import threading as th
+        th.Thread(target=hunter_job, daemon=True).start()
+        await query.edit_message_text(
+            "🔍 *Поиск запущен!*\n\nЕсли найду кого-то — пришлю уведомление сюда.",
+            parse_mode="Markdown"
+        )
+
+    elif query.data == "back_to_menu":
+        await cmd_start_from_callback(query)
+
     elif query.data == "add_more":
         settings = load_settings()
         setup_data[user_id] = {"posts_per_day": settings.get("posts_per_day", 1)}
@@ -496,11 +551,39 @@ def keep_alive():
                 log.warning(f"keep-alive error: {e}")
 
 # ── Запуск ────────────────────────────────────────────
+async def cmd_start_from_callback(query):
+    """Показывает главное меню из callback"""
+    settings = load_settings()
+    queue = load_queue()
+    hunter = load_hunter_settings()
+    hunter_status = "✅" if hunter.get("active") else "❌"
+
+    if settings.get("times"):
+        times_str = ", ".join(settings["times"])
+        keyboard = [
+            [InlineKeyboardButton("⚙️ Изменить настройки", callback_data="setup_start")],
+            [InlineKeyboardButton("➕ Добавить посты в очередь", callback_data="add_more")],
+            [InlineKeyboardButton("📤 Опубликовать пост сейчас", callback_data="post_now")],
+            [InlineKeyboardButton("📊 Статус очереди", callback_data="queue_status")],
+            [InlineKeyboardButton(f"🎯 Поиск клиентов {hunter_status}", callback_data="hunter_menu")],
+            [InlineKeyboardButton("🗑 Стереть все посты", callback_data="confirm_reset")],
+        ]
+        await query.edit_message_text(
+            f"👋 Главное меню\n\n"
+            f"✅ *Автопостинг активен*\n"
+            f"📅 Постов в день: *{settings['posts_per_day']}*\n"
+            f"⏰ Время: *{times_str}*\n"
+            f"📊 В очереди: *{len(queue)} постов*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
 def main():
     global bot_app
     log.info("🤖 Бот запущен!")
     threading.Thread(target=run_health_server, daemon=True).start()
     threading.Thread(target=run_scheduler, daemon=True).start()
+    threading.Thread(target=run_hunter_scheduler, daemon=True).start()
     threading.Thread(target=keep_alive, daemon=True).start()
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -512,3 +595,201 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ═══════════════════════════════════════════════════════
+# МОДУЛЬ АВТОПОИСКА КЛИЕНТОВ
+# ═══════════════════════════════════════════════════════
+
+KEYWORDS_FILE  = "keywords.json"
+REPLIED_FILE   = "replied_posts.json"
+HUNTER_FILE    = "hunter_settings.json"
+
+KEYWORDS = [
+    # Прямой запрос на видео
+    "где сделать ai видео", "как создать видео нейросеть", "где заказать ai видео",
+    "хочу видео нейросеть", "как сделать видео из фото", "нужно видео с нейросетью",
+    "хочу заказать видео", "где делают ai видео", "кто делает видео нейросеть",
+    # Цена
+    "дорого делать видео", "хочу сделать видео но дорого", "бюджетное видео ai",
+    "дешевое ai видео", "где дешево сделать видео", "недорогое видео нейросеть",
+    "сколько стоит ai видео", "где заказать видео недорого",
+    # Поиск сервиса
+    "ищу видео генератор", "посоветуйте видео ai", "какой сервис для видео",
+    "какой ai для видео", "лучший сервис ai видео", "аналог sora", "аналог runway",
+    "runway дорого", "sora альтернатива",
+    # Нейросети общее
+    "нейросеть видео", "ai видео генератор", "видео из текста ai",
+    "текст в видео нейросеть", "генерация видео ai", "создать видео промпт",
+    # Контент
+    "сделать рекламное видео ai", "видео для рилс нейросеть", "ai видео для соцсетей",
+    "короткое видео нейросеть", "видео для инстаграм ai", "сделать клип нейросеть",
+    # Новичок
+    "я новичок в ai", "я новичок в нейросетях", "только начинаю с ai",
+    "не разбираюсь в нейросетях", "не понимаю как работает ai", "хочу научиться ai",
+    "с чего начать в ai", "с чего начать нейросети", "помогите разобраться с ai",
+    "первый раз с нейросетью", "первый раз пробую ai", "что такое нейросети",
+    "хочу изучить ai", "посоветуйте для новичка",
+    # Клуб/сообщество
+    "где найти сообщество по ai", "есть ли клуб по нейросетям", "хочу в ai сообщество",
+    "где общаться про ai", "ищу единомышленников ai", "сообщество по видео ai",
+    "ai комьюнити на русском", "ищу ai клуб", "где учиться ai вместе",
+]
+
+def load_replied():
+    if os.path.exists(REPLIED_FILE):
+        with open(REPLIED_FILE, "r") as f:
+            return set(json.load(f))
+    return set()
+
+def save_replied(replied: set):
+    with open(REPLIED_FILE, "w") as f:
+        json.dump(list(replied), f)
+
+def load_hunter_settings():
+    if os.path.exists(HUNTER_FILE):
+        with open(HUNTER_FILE, "r") as f:
+            return json.load(f)
+    return {"active": False, "interval": 30}
+
+def save_hunter_settings(s):
+    with open(HUNTER_FILE, "w") as f:
+        json.dump(s, f)
+
+def search_threads_posts(keyword: str) -> list:
+    """Ищет посты в Threads по ключевому слову"""
+    try:
+        r = requests.get(
+            f"{THREADS_API}/threads",
+            params={
+                "q": keyword,
+                "fields": "id,text,username",
+                "access_token": THREADS_TOKEN
+            },
+            timeout=15
+        )
+        data = r.json()
+        return data.get("data", [])
+    except Exception as e:
+        log.error(f"Search error: {e}")
+        return []
+
+def generate_reply(post_text: str) -> str:
+    """AI генерирует живой естественный ответ"""
+    url = f"{OPENAI_BASE_URL}/chat/completions"
+    r = requests.post(
+        url,
+        headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": OPENCLAW_MODEL,
+            "max_tokens": 200,
+            "messages": [{
+                "role": "user",
+                "content": (
+                    f"Человек написал в Threads: \"{post_text}\"\n\n"
+                    f"Напиши короткий живой ответ от имени обычного человека.\n\n"
+                    f"Правила:\n"
+                    f"- Максимум 2-3 предложения\n"
+                    f"- Разговорный стиль, как другу\n"
+                    f"- Без рекламы и восклицательных знаков\n"
+                    f"- Если человек ищет AI видео сервис или агрегатор — намекни что знаешь где дешевле, предложи написать в личку\n"
+                    f"- Если новичок или интересуется AI — упомяни что есть закрытый клуб ИИ-Креаторов, предложи написать в личку\n"
+                    f"- Если подходит оба варианта — упомяни оба\n"
+                    f"- Не используй слова: реклама, сервис, продукт, подписка\n"
+                    f"- Только текст ответа без кавычек"
+                )
+            }]
+        },
+        timeout=30
+    )
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+def reply_to_post(post_id: str, reply_text: str) -> bool:
+    """Публикует ответ на пост в Threads"""
+    try:
+        r = requests.post(
+            f"{THREADS_API}/{THREADS_USER_ID}/threads",
+            params={
+                "media_type": "TEXT",
+                "text": reply_text,
+                "reply_to_id": post_id,
+                "access_token": THREADS_TOKEN
+            },
+            timeout=15
+        )
+        container_id = r.json().get("id")
+        if not container_id:
+            return False
+        time.sleep(3)
+        r2 = requests.post(
+            f"{THREADS_API}/{THREADS_USER_ID}/threads_publish",
+            params={"creation_id": container_id, "access_token": THREADS_TOKEN},
+            timeout=15
+        )
+        return bool(r2.json().get("id"))
+    except Exception as e:
+        log.error(f"Reply error: {e}")
+        return False
+
+def hunter_job():
+    """Основная задача поиска и ответов"""
+    hunter = load_hunter_settings()
+    if not hunter.get("active"):
+        return
+
+    replied = load_replied()
+    found_count = 0
+
+    for keyword in KEYWORDS:
+        posts = search_threads_posts(keyword)
+        for post in posts:
+            post_id = post.get("id")
+            post_text = post.get("text", "")
+            if not post_id or post_id in replied:
+                continue
+
+            try:
+                reply = generate_reply(post_text)
+                success = reply_to_post(post_id, reply)
+                if success:
+                    replied.add(post_id)
+                    found_count += 1
+                    log.info(f"✅ Ответил на пост: {post_text[:50]}...")
+
+                    # Уведомление в Telegram
+                    if bot_app and ADMIN_CHAT_ID:
+                        import asyncio
+                        msg = (
+                            f"🎯 *Нашёл клиента!*\n\n"
+                            f"*Пост:* {post_text[:150]}\n\n"
+                            f"*Мой ответ:* {reply}\n\n"
+                            f"🔑 Ключевое слово: _{keyword}_"
+                        )
+                        try:
+                            loop = asyncio.get_event_loop()
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                        asyncio.run_coroutine_threadsafe(
+                            bot_app.bot.send_message(
+                                chat_id=ADMIN_CHAT_ID, text=msg, parse_mode="Markdown"
+                            ),
+                            loop
+                        )
+                    time.sleep(10)  # пауза между ответами
+            except Exception as e:
+                log.error(f"Hunter error: {e}")
+
+        save_replied(replied)
+        if found_count >= 5:  # не более 5 ответов за один проход
+            break
+
+    log.info(f"🔍 Hunter: ответил на {found_count} постов")
+
+def run_hunter_scheduler():
+    """Запускает hunter по расписанию"""
+    while True:
+        hunter = load_hunter_settings()
+        interval = hunter.get("interval", 30)
+        schedule.every(interval).minutes.do(hunter_job)
+        time.sleep(60)
+        schedule.run_pending()
