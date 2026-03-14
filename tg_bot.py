@@ -404,7 +404,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-async def cmd_start_from_callback(query):
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     settings = load_settings()
     queue = load_queue()
     hunter = load_hunter_settings()
@@ -420,31 +420,20 @@ async def cmd_start_from_callback(query):
             [InlineKeyboardButton(f"🎯 Поиск клиентов {h}", callback_data="hunter_menu")],
             [InlineKeyboardButton("🗑 Стереть все посты", callback_data="confirm_reset")],
         ]
-        await query.edit_message_text(
-            f"👋 Главное меню\n\n"
-async def cmd_start_from_callback(query):
-    settings = load_settings()
-    queue = load_queue()
-    hunter = load_hunter_settings()
-    h = "✅" if hunter.get("active") else "❌"
-
-    if settings.get("times"):
-        times_str = ", ".join(settings["times"])
-        keyboard = [
-            [InlineKeyboardButton("⚙️ Изменить настройки", callback_data="setup_start")],
-            [InlineKeyboardButton("➕ Добавить посты в очередь", callback_data="add_more")],
-            [InlineKeyboardButton("📤 Опубликовать пост сейчас", callback_data="post_now")],
-            [InlineKeyboardButton("📊 Статус очереди", callback_data="queue_status")],
-            [InlineKeyboardButton(f"🎯 Поиск клиентов {h}", callback_data="hunter_menu")],
-            [InlineKeyboardButton("🗑 Стереть все посты", callback_data="confirm_reset")],
-        ]
-        await query.edit_message_text(
-            f"👋 Главное меню\n\n"
+        await update.message.reply_text(
+            f"👋 Привет!\n\n"
             f"✅ *Автопостинг активен*\n"
             f"📅 Постов в день: *{settings['posts_per_day']}*\n"
             f"⏰ Время: *{times_str}*\n"
-            f"📊 В очереди: *{len(queue)} постов*",
+            f"📊 В очереди: *{len(queue)} постов*\n\n"
+            f"Что делаем?",
             parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        keyboard = [[InlineKeyboardButton("🚀 Настроить автопостинг", callback_data="setup_start")]]
+        await update.message.reply_text(
+            "👋 Привет! Я публикую посты в Threads автоматически.\n\nДавай настроим!",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
