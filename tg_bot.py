@@ -422,6 +422,24 @@ async def cmd_start_from_callback(query):
         ]
         await query.edit_message_text(
             f"👋 Главное меню\n\n"
+async def cmd_start_from_callback(query):
+    settings = load_settings()
+    queue = load_queue()
+    hunter = load_hunter_settings()
+    h = "✅" if hunter.get("active") else "❌"
+
+    if settings.get("times"):
+        times_str = ", ".join(settings["times"])
+        keyboard = [
+            [InlineKeyboardButton("⚙️ Изменить настройки", callback_data="setup_start")],
+            [InlineKeyboardButton("➕ Добавить посты в очередь", callback_data="add_more")],
+            [InlineKeyboardButton("📤 Опубликовать пост сейчас", callback_data="post_now")],
+            [InlineKeyboardButton("📊 Статус очереди", callback_data="queue_status")],
+            [InlineKeyboardButton(f"🎯 Поиск клиентов {h}", callback_data="hunter_menu")],
+            [InlineKeyboardButton("🗑 Стереть все посты", callback_data="confirm_reset")],
+        ]
+        await query.edit_message_text(
+            f"👋 Главное меню\n\n"
             f"✅ *Автопостинг активен*\n"
             f"📅 Постов в день: *{settings['posts_per_day']}*\n"
             f"⏰ Время: *{times_str}*\n"
@@ -434,15 +452,14 @@ async def cmd_start_from_callback(query):
 async def ask_posts_per_day(query):
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
-async def ask_topics_count(query, user_id):
-    ppd = setup_data[user_id]["posts_per_day"]
-    times_str = ", ".join(get_post_times(ppd))
-    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"tc:{i}") for i in range(1, 4)]]
+        [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(6, 11)],
+    ]
     await query.edit_message_text(
-        f"✅ Постов в день: *{ppd}*\n⏰ Время: *{times_str}*\n\n📝 *Шаг 2 из 4*\n\nСколько *тем* чередовать?",
+        "⚙️ *Настройка автопостинга*\n\n📅 *Шаг 1 из 4*\n\nСколько постов публиковать *в день*?",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
 
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
