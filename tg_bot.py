@@ -1,4 +1,3 @@
-```python
 """
 Telegram Bot — автопостинг в Threads + поиск клиентов
 """
