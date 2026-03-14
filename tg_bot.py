@@ -40,43 +40,31 @@ bot_app = None
 setup_data = {}
 
 KEYWORDS = [
-    "ai видео", "нейросеть видео", "видео генератор", "ai генератор",
-    "где видео", "как видео", "сделать видео", "создать видео",
-    "заказать видео", "купить видео", "видео сервис", "видео сайт",
-    "видео онлайн", "видео бесплатно", "видео дешево", "видео недорого",
-    "видео цена", "видео стоимость", "видео рекомендация", "видео совет",
-    "видео помощь", "видео инструмент", "видео программа", "видео приложение",
-    "видео платформа", "видео сервис", "видео решение", "видео альтернатива",
-    "sora альтернатива", "runway альтернатива", "midjourney видео", "stable video",
-    "ai видео бесплатно", "ai видео онлайн", "ai видео легко", "ai видео быстро",
-    "видео из текста", "текст видео", "промпт видео", "видео промпт",
-    "видео из фото", "фото видео", "картинка видео", "изображение видео",
-    "видео для рилс", "видео для тиктока", "видео для инстаграма", "видео для ютуба",
-    "короткое видео", "видео клип", "видео ролик", "видео нарезка",
-    "рекламное видео", "видео реклама", "видео маркетинг", "видео продвижение",
-    "видео контент", "видео создание", "видео монтаж", "видео редактор",
-    "новичок ai", "начинающий ai", "первый раз ai", "учусь ai",
-    "ai обучение", "ai курс", "ai школа", "ai уроки",
-    "что такое ai", "как работает ai", "ai объяснение", "ai для начинающих",
-    "ai сообщество", "ai клуб", "ai группа", "ai чат",
-    "ai люди", "ai единомышленники", "ai друзья", "ai команда",
-    "ai русский", "ai на русском", "русское ai", "русский ai",
-    "ai бесплатно", "ai платно", "ai подписка", "ai премиум",
-    "ai инструмент", "ai программа", "ai приложение", "ai софт",
-    "ai технология", "ai нейросеть", "ai машинное обучение", "ai искусственный интеллект",
-    "видео качество", "видео разрешение", "видео 4k", "видео hd",
-    "видео скорость", "видео быстро", "видео медленно", "видео эффекты",
-    "видео фильтры", "видео переходы", "видео музыка", "видео звук",
-    "видео субтитры", "видео текст", "видео логотип", "видео водяной знак",
-    "видео экспорт", "видео скачать", "видео сохранить", "видео поделиться",
-    "видео редактирование", "видео обработка", "видео конвертация", "видео сжатие",
-    "видео хостинг", "видео облако", "видео сервер", "видео хранилище",
-    "видео аналитика", "видео статистика", "видео просмотры", "видео лайки",
-    "видео комментарии", "видео подписчики", "видео монетизация", "видео доход",
-    "видео профессиональное", "видео студийное", "видео домашнее", "видео мобильное",
+    "где сделать ai видео", "как создать видео нейросеть", "где заказать ai видео",
+    "хочу видео нейросеть", "как сделать видео из фото", "нужно видео с нейросетью",
+    "хочу заказать видео", "где делают ai видео", "кто делает видео нейросеть",
+    "дорого делать видео", "хочу сделать видео но дорого", "бюджетное видео ai",
+    "дешевое ai видео", "где дешево сделать видео", "недорогое видео нейросеть",
+    "сколько стоит ai видео", "где заказать видео недорого",
+    "ищу видео генератор", "посоветуйте видео ai", "какой сервис для видео",
+    "какой ai для видео", "лучший сервис ai видео", "аналог sora", "аналог runway",
+    "runway дорого", "sora альтернатива",
+    "нейросеть видео", "ai видео генератор", "видео из текста ai",
+    "текст в видео нейросеть", "генерация видео ai", "создать видео промпт",
+    "сделать рекламное видео ai", "видео для рилс нейросеть", "ai видео для соцсетей",
+    "короткое видео нейросеть", "видео для инстаграм ai", "сделать клип нейросеть",
+    "я новичок в ai", "я новичок в нейросетях", "только начинаю с ai",
+    "не разбираюсь в нейросетях", "не понимаю как работает ai", "хочу научиться ai",
+    "с чего начать в ai", "с чего начать нейросети", "помогите разобраться с ai",
+    "первый раз с нейросетью", "первый раз пробую ai", "что такое нейросети",
+    "хочу изучить ai", "посоветуйте для новичка",
+    "где найти сообщество по ai", "есть ли клуб по нейросетям", "хочу в ai сообщество",
+    "где общаться про ai", "ищу единомышленников ai", "сообщество по видео ai",
+    "ai комьюнити на русском", "ищу ai клуб", "где учиться ai вместе",
 ]
 
 
+# ── Утилиты ───────────────────────────────────────────
 def load_queue():
     if os.path.exists(QUEUE_FILE):
         with open(QUEUE_FILE, "r", encoding="utf-8") as f:
@@ -111,7 +99,7 @@ def load_hunter_settings():
     if os.path.exists(HUNTER_FILE):
         with open(HUNTER_FILE, "r") as f:
             return json.load(f)
-    return {"active": False, "interval": 10}
+    return {"active": False, "interval": 30}
 
 def save_hunter_settings(s):
     with open(HUNTER_FILE, "w") as f:
@@ -131,11 +119,56 @@ def get_post_times(posts_per_day: int) -> list:
     return times
 
 
+# ── Веб-сервер ────────────────────────────────────────
+THREADS_APP_SECRET = os.getenv("THREADS_APP_SECRET", "")
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+
+        # OAuth callback — получаем code и меняем на токен
+        if parsed.path == "/" and "code" in params:
+            code = params["code"][0]
+            try:
+                r = requests.post(
+                    "https://graph.threads.net/oauth/access_token",
+                    data={
+                        "client_id": "1735886881179416",
+                        "client_secret": THREADS_APP_SECRET,
+                        "grant_type": "authorization_code",
+                        "redirect_uri": f"https://threads-autopost-7eto.onrender.com",
+                        "code": code
+                    }
+                )
+                data = r.json()
+                token = data.get("access_token", "")
+                user_id = data.get("user_id", "")
+                msg = f"✅ Новый токен получен!\n\nТокен: {token}\nUser ID: {user_id}\n\nОбновите THREADS_ACCESS_TOKEN на Render!"
+                if bot_app and ADMIN_CHAT_ID:
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    asyncio.run_coroutine_threadsafe(
+                        bot_app.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg),
+                        loop
+                    )
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(f"Token received! Check Telegram. Token: {token}".encode())
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(f"Error: {e}".encode())
+        else:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+
     def log_message(self, *args):
         pass
 
@@ -153,6 +186,7 @@ def keep_alive():
                 log.warning(f"keep-alive error: {e}")
 
 
+# ── AI генерация ──────────────────────────────────────
 def generate_posts_batch(topic: str, count: int) -> list:
     url = f"{OPENAI_BASE_URL}/chat/completions"
     r = requests.post(
@@ -214,6 +248,7 @@ def generate_reply(post_text: str) -> str:
     return r.json()["choices"][0]["message"]["content"].strip()
 
 
+# ── Threads публикация ────────────────────────────────
 def publish_to_threads(text: str) -> str | None:
     r = requests.post(
         f"{THREADS_API}/{THREADS_USER_ID}/threads",
@@ -257,6 +292,7 @@ def reply_to_post(post_id: str, reply_text: str) -> bool:
         return False
 
 
+# ── Автопостинг ───────────────────────────────────────
 def notify_admin(msg: str):
     if bot_app and ADMIN_CHAT_ID:
         import asyncio
@@ -300,6 +336,7 @@ def run_scheduler():
         time.sleep(30)
 
 
+# ── Поиск клиентов ────────────────────────────────────
 def search_threads_posts(keyword: str) -> list:
     try:
         r = requests.get(
@@ -315,75 +352,51 @@ def search_threads_posts(keyword: str) -> list:
 def hunter_job():
     hunter = load_hunter_settings()
     if not hunter.get("active"):
-        return False
+        return
 
     replied = load_replied()
-    found = False
+    found_count = 0
 
     for keyword in KEYWORDS:
-        if found:
-            break
-        
-        log.info(f"Search keyword: '{keyword}'")
         posts = search_threads_posts(keyword)
-        log.info(f"Found posts: {len(posts)}")
-        
         for post in posts:
             post_id = post.get("id")
             post_text = post.get("text", "")
-            
             if not post_id or post_id in replied:
-                log.info(f"Post already processed or no ID")
                 continue
-            
-            log.info(f"New post found: {post_text[:80]}...")
-            
             try:
                 reply = generate_reply(post_text)
-                log.info(f"Generated reply: {reply[:80]}...")
-                
                 success = reply_to_post(post_id, reply)
                 if success:
                     replied.add(post_id)
-                    found = True
-                    log.info(f"Replied: {post_text[:50]}...")
+                    found_count += 1
+                    log.info(f"✅ Ответил: {post_text[:50]}...")
                     notify_admin(
-                        f"Found client!\n\n"
-                        f"Post: {post_text[:150]}\n\n"
-                        f"Reply: {reply}\n\n"
-                        f"Keyword: {keyword}"
+                        f"🎯 *Нашёл клиента!*\n\n"
+                        f"*Пост:* {post_text[:150]}\n\n"
+                        f"*Ответ:* {reply}\n\n"
+                        f"🔑 Ключ: _{keyword}_"
                     )
                     time.sleep(10)
-                    break
             except Exception as e:
                 log.error(f"Hunter error: {e}")
 
-    save_replied(replied)
-    
-    if not found:
-        log.info("Hunter: no posts found, searching...")
-    else:
-        log.info("Hunter: replied to post, searching next...")
-    
-    return found
+        save_replied(replied)
+        if found_count >= 5:
+            break
+
+    log.info(f"🔍 Hunter: ответил на {found_count} постов")
 
 def run_hunter_scheduler():
     while True:
         hunter = load_hunter_settings()
-        if not hunter.get("active"):
-            time.sleep(60)
-            continue
-        
-        found = False
-        
-        while not found:
-            hunter = load_hunter_settings()
-            if not hunter.get("active"):
-                break
-            
-            found = hunter_job()
+        interval = hunter.get("interval", 30)
+        schedule.every(interval).minutes.do(hunter_job)
+        time.sleep(interval * 60)
+        schedule.run_pending()
 
 
+# ── Telegram /start ───────────────────────────────────
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     settings = load_settings()
     queue = load_queue()
@@ -417,7 +430,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def cmd_start_from_callback(query):
     settings = load_settings()
     queue = load_queue()
     hunter = load_hunter_settings()
@@ -433,45 +446,23 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton(f"🎯 Поиск клиентов {h}", callback_data="hunter_menu")],
             [InlineKeyboardButton("🗑 Стереть все посты", callback_data="confirm_reset")],
         ]
-        await update.message.reply_text(
-            f"👋 Привет!\n\n"
+        await query.edit_message_text(
+            f"👋 Главное меню\n\n"
             f"✅ *Автопостинг активен*\n"
             f"📅 Постов в день: *{settings['posts_per_day']}*\n"
             f"⏰ Время: *{times_str}*\n"
-            f"📊 В очереди: *{len(queue)} постов*\n\n"
-            f"Что делаем?",
+            f"📊 В очереди: *{len(queue)} постов*",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    else:
-        keyboard = [[InlineKeyboardButton("🚀 Настроить автопостинг", callback_data="setup_start")]]
-        await update.message.reply_text(
-            "👋 Привет! Я публикую посты в Threads автоматически.\n\nДавай настроим!",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
 
 
+# ── Шаги настройки ───────────────────────────────────
 async def ask_posts_per_day(query):
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(6, 11)],
     ]
-    await query.edit_message_text(
-        "⚙️ *Настройка автопостинга*\n\n📅 *Шаг 1 из 4*\n\nСколько постов публиковать *в день*?",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-
-    keyboard = [
-        [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
-        [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(6, 11)],
-    ]
-    await query.edit_message_text(
-        "⚙️ *Настройка автопостинга*\n\n📅 *Шаг 1 из 4*\n\nСколько постов публиковать *в день*?",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
     await query.edit_message_text(
         "⚙️ *Настройка автопостинга*\n\n📅 *Шаг 1 из 4*\n\nСколько постов публиковать *в день*?",
         parse_mode="Markdown",
@@ -520,6 +511,7 @@ async def ask_days(update, user_id):
     )
 
 
+# ── Обработка текста ──────────────────────────────────
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
@@ -539,6 +531,7 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await ask_days(update, user_id)
 
 
+# ── Callback ──────────────────────────────────────────
 async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -660,10 +653,10 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif query.data == "hunter_menu":
         hunter = load_hunter_settings()
         status = "✅ Активен" if hunter.get("active") else "❌ Выключен"
-        interval = hunter.get("interval", 10)
+        interval = hunter.get("interval", 30)
         keyboard = [
             [InlineKeyboardButton("▶️ Включить" if not hunter.get("active") else "⏹ Выключить", callback_data="hunter_toggle")],
-            [InlineKeyboardButton("⏱ 10 мин", callback_data="hunter_interval:10"),
+            [InlineKeyboardButton("⏱ 15 мин", callback_data="hunter_interval:15"),
              InlineKeyboardButton("⏱ 30 мин", callback_data="hunter_interval:30"),
              InlineKeyboardButton("⏱ 1 час", callback_data="hunter_interval:60")],
             [InlineKeyboardButton("🔍 Запустить сейчас", callback_data="hunter_now")],
@@ -708,6 +701,7 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ── Запуск ────────────────────────────────────────────
 def main():
     global bot_app
     log.info("🤖 Бот запущен!")
