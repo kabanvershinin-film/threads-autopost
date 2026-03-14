@@ -350,19 +350,14 @@ def run_hunter_scheduler():
             time.sleep(60)
             continue
         
-        interval = hunter.get("interval", 10)
         found = False
         
-        while not found and hunter.get("active"):
+        while not found:
             hunter = load_hunter_settings()
             if not hunter.get("active"):
                 break
             
             found = hunter_job()
-            
-            if not found:
-                log.info(f"⏳ Ждём {interval} минут перед следующим поиском...")
-                time.sleep(interval * 60)
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
