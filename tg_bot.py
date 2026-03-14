@@ -434,7 +434,16 @@ async def cmd_start_from_callback(query):
 async def ask_posts_per_day(query):
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
-async def ask_posts_per_day(query):
+async def ask_topics_count(query, user_id):
+    ppd = setup_data[user_id]["posts_per_day"]
+    times_str = ", ".join(get_post_times(ppd))
+    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"tc:{i}") for i in range(1, 4)]]
+    await query.edit_message_text(
+        f"✅ Постов в день: *{ppd}*\n⏰ Время: *{times_str}*\n\n📝 *Шаг 2 из 4*\n\nСколько *тем* чередовать?",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
     keyboard = [
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(1, 6)],
         [InlineKeyboardButton(str(i), callback_data=f"ppd:{i}") for i in range(6, 11)],
